@@ -67,6 +67,6 @@ var (
 	// ErrInvalidAsOfExpression is returned when an expression for AS OF cannot be used
 	ErrInvalidAsOfExpression = errors.NewKind("expression %s cannot be used in AS OF")
 
-	// ErrUnsupportedDefault return when an expression for a column default is not supported
-	ErrUnsupportedDefault = errors.NewKind("column default %s is not supported")
+	// ErrIncompatibleDefaultType is thrown when a provided default cannot be coerced into the type of the column
+	ErrIncompatibleDefaultType = errors.NewKind("incompatible type for default value")
 )

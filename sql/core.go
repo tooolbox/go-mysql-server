@@ -149,6 +149,14 @@ type Databaser interface {
 	WithDatabase(Database) (Node, error)
 }
 
+type SchemeModifiable interface {
+	// Schema of the node.
+	Schema() Schema
+	// WithSchema returns a new node instance with the schema replaced with
+	// the one given as parameter.
+	WithSchema(Schema) (Node, error)
+}
+
 // Partition represents a partition from a SQL table.
 type Partition interface {
 	Key() []byte
