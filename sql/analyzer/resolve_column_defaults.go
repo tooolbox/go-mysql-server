@@ -1,9 +1,7 @@
 package analyzer
 
 import (
-	"fmt"
 	"github.com/liquidata-inc/go-mysql-server/sql"
-	"github.com/liquidata-inc/go-mysql-server/sql/expression"
 	"github.com/liquidata-inc/go-mysql-server/sql/plan"
 	"strings"
 )
@@ -425,7 +423,7 @@ func resolveColumnDefaults(ctx *sql.Context, a *Analyzer, n sql.Node, scope *Sco
 
 	return plan.TransformUp(n, func(n sql.Node) (sql.Node, error) {
 		switch node := n.(type) {
-		case sql.SchemeModifiable:
+		case sql.SchemaModifiable:
 			sch := node.Schema()
 			var columns = make(map[string]indexedCol)
 			for i, col := range sch {
@@ -440,41 +438,35 @@ func resolveColumnDefaults(ctx *sql.Context, a *Analyzer, n sql.Node, scope *Sco
 					continue
 				}
 				if sql.IsTextBlob(newCol.Type) && newCol.Default.IsLiteral() {
-					return nil, fmt.Errorf("text/blob types may only have expression default values")
+					return nil, sql.ErrInvalidTextBlobColumnDefault.New()
 				}
-				newDefaultExpr, err := expression.TransformUp(newCol.Default.Expression, func(e sql.Expression) (sql.Expression, error) {
+				var err error
+				sql.Inspect(newCol.Default.Expression, func(e sql.Expression) bool {
 					switch expr := e.(type) {
-					case *expression.UnresolvedFunction:
-						funcName := expr.Name()
+					case sql.FunctionExpression:
+						funcName := expr.FunctionName()
 						if _, isValid := validColumnDefaultFuncs[funcName]; !isValid {
-							return nil, fmt.Errorf("function `%s` on column `%s` is not valid for usage in a default value", funcName, col.Name)
+							err = sql.ErrInvalidColumnDefaultFunction.New(funcName, col.Name)
+							return false
 						}
 						if (funcName == "now" || funcName == "current_timestamp") &&
 							newCol.Default.IsLiteral() &&
 							(!sql.IsTime(newCol.Type) || sql.Date == newCol.Type) {
-							return nil, fmt.Errorf("only datetime/timestamp may declare default values of now()/current_timestamp() without surrounding parentheses")
+							err = sql.ErrColumnDefaultDatetimeOnlyFunc.New()
+							return false
 						}
-						validFunc, err := a.Catalog.Function(funcName)
-						if err != nil {
-							return nil, err
-						}
-						return validFunc.Call(expr.Arguments...)
-					case *expression.UnresolvedColumn:
-						foundCol, ok := columns[strings.ToLower(expr.Name())]
-						if !ok {
-							return nil, sql.ErrColumnNotFound.New(expr.Name())
-						}
-						return expression.NewGetField(foundCol.index, foundCol.Type, foundCol.Name, foundCol.Nullable), nil
+						return true
 					case *plan.Subquery:
-						return nil, fmt.Errorf("default value on column `%s` may not contain subqueries", col.Name)
+						err = sql.ErrColumnDefaultSubquery.New(col.Name)
+						return false
 					default:
-						return e, nil
+						return true
 					}
 				})
 				if err != nil {
 					return nil, err
 				}
-				newCol.Default, err = sql.NewColumnDefaultValue(newDefaultExpr, newCol.Type, newCol.Default.IsLiteral(), newCol.Nullable)
+				newCol.Default, err = sql.NewColumnDefaultValue(newCol.Default.Expression, newCol.Type, newCol.Default.IsLiteral(), newCol.Nullable)
 				if err != nil {
 					return nil, err
 				}

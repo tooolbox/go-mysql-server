@@ -73,7 +73,8 @@ type CreateTable struct {
 
 var _ sql.Databaser = (*CreateTable)(nil)
 var _ sql.Node = (*CreateTable)(nil)
-var _ sql.SchemeModifiable = (*CreateTable)(nil)
+var _ sql.Expressioner = (*CreateTable)(nil)
+var _ sql.SchemaModifiable = (*CreateTable)(nil)
 
 // NewCreateTable creates a new CreateTable node
 func NewCreateTable(db sql.Database, name string, schema sql.Schema, ifNotExists bool, idxDefs []*IndexDefinition, fkDefs []*sql.ForeignKeyConstraint) *CreateTable {
@@ -108,6 +109,15 @@ func (c *CreateTable) WithSchema(sch sql.Schema) (sql.Node, error) {
 	nc := *c
 	nc.schema = sch
 	return &nc, nil
+}
+
+// Resolved implements the Resolvable interface.
+func (c *CreateTable) Resolved() bool {
+	resolved := c.ddlNode.Resolved()
+	for _, col := range c.schema {
+		resolved = resolved && col.Default.Resolved()
+	}
+	return resolved
 }
 
 // RowIter implements the Node interface.
@@ -174,6 +184,30 @@ func (c *CreateTable) String() string {
 		ifNotExists = "if not exists "
 	}
 	return fmt.Sprintf("Create table %s%s", ifNotExists, c.name)
+}
+
+func (c *CreateTable) Expressions() []sql.Expression {
+	exprs := make([]sql.Expression, len(c.schema))
+	for i, col := range c.schema {
+		exprs[i] = expression.WrapExpression(col.Default)
+	}
+	return exprs
+}
+
+func (c *CreateTable) WithExpressions(exprs ...sql.Expression) (sql.Node, error) {
+	if len(exprs) != len(c.schema) {
+		return nil, sql.ErrInvalidChildrenNumber.New(c, len(exprs), len(c.schema))
+	}
+	nc := *c
+	for i, expr := range exprs {
+		unwrappedColDefVal, ok := expr.(*expression.Wrapper).Unwrap().(*sql.ColumnDefaultValue)
+		if ok {
+			nc.schema[i].Default = unwrappedColDefVal
+		} else { // nil fails type check
+			nc.schema[i].Default = nil
+		}
+	}
+	return &nc, nil
 }
 
 func (c *CreateTable) validateDefaultPosition() error {
@@ -329,7 +363,8 @@ type AddColumn struct {
 
 var _ sql.Node = (*AddColumn)(nil)
 var _ sql.Databaser = (*AddColumn)(nil)
-var _ sql.SchemeModifiable = (*AddColumn)(nil)
+var _ sql.Expressioner = (*AddColumn)(nil)
+var _ sql.SchemaModifiable = (*AddColumn)(nil)
 
 func NewAddColumn(db sql.Database, tableName string, column *sql.Column, order *sql.ColumnOrder) *AddColumn {
 	return &AddColumn{
@@ -389,6 +424,29 @@ func (a *AddColumn) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter, error) 
 	}
 
 	return sql.RowsToRowIter(), alterable.AddColumn(ctx, a.column, a.order)
+}
+
+func (a *AddColumn) Expressions() []sql.Expression {
+	return expression.WrapExpressions(a.column.Default)
+}
+
+func (a *AddColumn) WithExpressions(exprs ...sql.Expression) (sql.Node, error) {
+	if len(exprs) != 1 {
+		return nil, sql.ErrInvalidChildrenNumber.New(a, len(exprs), 1)
+	}
+	na := *a
+	unwrappedColDefVal, ok := exprs[0].(*expression.Wrapper).Unwrap().(*sql.ColumnDefaultValue)
+	if ok {
+		na.column.Default = unwrappedColDefVal
+	} else { // nil fails type check
+		na.column.Default = nil
+	}
+	return &na, nil
+}
+
+// Resolved implements the Resolvable interface.
+func (a *AddColumn) Resolved() bool {
+	return a.ddlNode.Resolved() && a.column.Default.Resolved()
 }
 
 func (a *AddColumn) validateDefaultPosition(tblSch sql.Schema) error {
@@ -559,7 +617,8 @@ type ModifyColumn struct {
 
 var _ sql.Node = (*ModifyColumn)(nil)
 var _ sql.Databaser = (*ModifyColumn)(nil)
-var _ sql.SchemeModifiable = (*ModifyColumn)(nil)
+var _ sql.Expressioner = (*ModifyColumn)(nil)
+var _ sql.SchemaModifiable = (*ModifyColumn)(nil)
 
 func NewModifyColumn(db sql.Database, tableName string, columnName string, column *sql.Column, order *sql.ColumnOrder) *ModifyColumn {
 	return &ModifyColumn{
@@ -625,6 +684,29 @@ func (m *ModifyColumn) RowIter(ctx *sql.Context, row sql.Row) (sql.RowIter, erro
 
 func (m *ModifyColumn) WithChildren(children ...sql.Node) (sql.Node, error) {
 	return NillaryWithChildren(m, children...)
+}
+
+func (m *ModifyColumn) Expressions() []sql.Expression {
+	return expression.WrapExpressions(m.column.Default)
+}
+
+func (m *ModifyColumn) WithExpressions(exprs ...sql.Expression) (sql.Node, error) {
+	if len(exprs) != 1 {
+		return nil, sql.ErrInvalidChildrenNumber.New(m, len(exprs), 1)
+	}
+	nm := *m
+	unwrappedColDefVal, ok := exprs[0].(*expression.Wrapper).Unwrap().(*sql.ColumnDefaultValue)
+	if ok {
+		nm.column.Default = unwrappedColDefVal
+	} else { // nil fails type check
+		nm.column.Default = nil
+	}
+	return &nm, nil
+}
+
+// Resolved implements the Resolvable interface.
+func (m *ModifyColumn) Resolved() bool {
+	return m.ddlNode.Resolved() && m.column.Default.Resolved()
 }
 
 func (m *ModifyColumn) validateDefaultPosition(tblSch sql.Schema) error {

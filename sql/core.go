@@ -54,6 +54,12 @@ type Expression interface {
 	WithChildren(...Expression) (Expression, error)
 }
 
+// FunctionExpression is an Expression that represents a function.
+type FunctionExpression interface {
+	Expression
+	FunctionName() string
+}
+
 // NonDeterministicExpression allows a way for expressions to declare that they are non-deterministic, which will
 // signal the engine to not cache their results when this would otherwise appear to be safe.
 type NonDeterministicExpression interface {
@@ -149,7 +155,7 @@ type Databaser interface {
 	WithDatabase(Database) (Node, error)
 }
 
-type SchemeModifiable interface {
+type SchemaModifiable interface {
 	// Schema of the node.
 	Schema() Schema
 	// WithSchema returns a new node instance with the schema replaced with
